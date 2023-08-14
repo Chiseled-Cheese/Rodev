@@ -1,0 +1,155 @@
+--script 1
+local replicatedstorage = game:GetService("ReplicatedStorage")
+local popularblocks = replicatedstorage.DisplayableData.PopularBlocks
+
+local debouncePeriod = 0.1 -- Adjust the debounce period as needed
+local debounceTimers = {} -- Stores debounce timers for each plot
+local blockChanges = {} -- Stores accumulated block changes within debounce period
+
+local function updateBlockCount(blockName, increment)
+	local targetValue = popularblocks:FindFirstChild(blockName)
+
+	if not targetValue then
+		targetValue = Instance.new("IntValue", replicatedstorage.DisplayableData.PopularBlocks)
+		targetValue.Name = blockName
+	end
+
+	targetValue.Value = targetValue.Value + increment
+end
+
+local function processBlockChanges()
+	for blockName, increment in pairs(blockChanges) do
+		updateBlockCount(blockName, increment)
+	end
+	blockChanges = {}
+end
+
+local function onChildAdded(plot, block)
+	local blockName = block.Name
+
+	if debounceTimers[plot] then
+		-- If a debounce timer is already set, update the changes
+		blockChanges[blockName] = (blockChanges[blockName] or 0) + 1
+	else
+		-- No debounce timer set, update the count immediately
+		updateBlockCount(blockName, 1)
+	end
+end
+
+local function onChildRemoved(plot, block)
+	local blockName = block.Name
+
+	if debounceTimers[plot] then
+		-- If a debounce timer is set, update the changes
+		blockChanges[blockName] = (blockChanges[blockName] or 0) - 1
+	else
+		-- No debounce timer set, update the count immediately
+		updateBlockCount(blockName, -1)
+	end
+	
+	-- Set up a new debounce timer for the plot
+	debounceTimers[plot] = plot.Blocks.ChildAdded:Connect(function(child)
+		onChildAdded(plot, child)
+	end)
+
+	if debounceTimers[plot] then
+		debounceTimers[plot]:Disconnect()
+	end
+
+	debounceTimers[plot] = wait(debouncePeriod)
+	debounceTimers[plot] = nil
+	processBlockChanges()
+end
+
+for _, plot in pairs(workspace.Plots:GetChildren()) do
+	plot.Blocks.ChildAdded:Connect(function(child)
+		onChildAdded(plot, child)
+	end)
+
+	plot.Blocks.ChildRemoved:Connect(function(child)
+		onChildRemoved(plot, child)
+	end)
+end
+
+--script 2
+
+local dataCacheUpdate = os.time()
+local dataCacheUse = os.time()
+
+function addToOwnedTable(plr,id)
+	local newOwnedList
+
+	local success = pcall(function()
+		newOwnedList = workshopPlayerOwnedList:GetAsync(plr.UserId)
+		newOwnedList = http:JSONDecode(newOwnedList)
+	end)
+
+	if not newOwnedList then
+		newOwnedList = {}
+	end
+
+	if success then
+		table.insert(newOwnedList,(#newOwnedList+1),id)
+
+		local success2 = pcall(function()
+			newOwnedList = http:JSONEncode(newOwnedList)
+			workshopPlayerOwnedList:SetAsync(plr.UserId,newOwnedList)
+		end)
+
+		if success2 then
+			return true
+		end
+	end
+
+	return false
+end
+
+function removeFromOwnedTable(plrId,id)
+	local newOwnedList
+
+	local success = pcall(function()
+		newOwnedList = workshopPlayerOwnedList:GetAsync(plrId)
+		newOwnedList = http:JSONDecode(newOwnedList)
+	end)
+
+	if not newOwnedList then
+		newOwnedList = {}
+	end
+
+	if success then
+		for i, v in pairs(newOwnedList) do
+			if v == id then
+				table.remove(newOwnedList,i)
+			end
+		end
+		local success2 = pcall(function()
+			newOwnedList = http:JSONEncode(newOwnedList)
+			workshopPlayerOwnedList:SetAsync(plrId,newOwnedList)
+		end)
+
+		if success2 then
+			return true
+		end
+	end
+
+	return false
+end
+
+function addToCache(id,tbl)
+	if not tbl then
+		return
+	end
+	if typeof(tbl.Information.Build) == "table" then
+		tbl.Information.Build = #tbl.Information.Build-1
+	end
+	if tbl.Information.BuildRequest and typeof(tbl.Information.BuildRequest) == "table" then
+		tbl.Information.BuildRequest = #tbl.Information.BuildRequest-1
+	end
+	
+	dataCache[id] = http:JSONEncode(tbl)
+	
+	if os.time()-dataCacheUpdate > 60 and os.time()-dataCacheUse > 10 then
+		dataCacheUpdate = os.time()
+		dataCache = {}
+	end
+end
